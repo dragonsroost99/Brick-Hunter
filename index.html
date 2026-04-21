@@ -527,7 +527,13 @@ function App(){
 }
 
 ReactDOM.render(ce(App),document.getElementById('root'));
-if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/Brick-Hunter/sw.js', {
+        scope: '/Brick-Hunter/'
+      });
+    });
+}
 </script>
 </body>
 </html>
