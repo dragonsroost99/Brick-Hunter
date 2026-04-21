@@ -7,6 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Brick Hunter"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
 <title>Brick Hunter</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet"/>
@@ -80,7 +82,6 @@ select.input{appearance:none;cursor:pointer;}
 .sel-row.sel{border-color:var(--accent2);}
 .chk{width:18px;height:18px;border:2px solid var(--border);border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text);}
 .sel-row.sel .chk{background:var(--accent2);border-color:var(--accent2);color:#000;}
-.bsx-drop{background:var(--surface);border:2px dashed var(--border);border-radius:6px;padding:20px;text-align:center;color:var(--muted);font-size:13px;cursor:pointer;margin-bottom:12px;}
 .empty{text-align:center;padding:40px 20px;color:var(--muted);}
 .empty-icon{font-size:36px;margin-bottom:10px;}
 .empty-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;text-transform:uppercase;margin-bottom:6px;color:var(--subtext);}
@@ -91,8 +92,10 @@ select.input{appearance:none;cursor:pointer;}
 .form-row{margin-bottom:12px;}
 .form-label{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;display:block;}
 .form-actions{display:flex;gap:8px;margin-top:16px;}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent2);color:#000;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;padding:8px 18px;border-radius:4px;z-index:300;animation:fo 2.2s ease forwards;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--accent2);color:#000;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;padding:8px 18px;border-radius:4px;z-index:300;animation:fo 2.4s ease forwards;}
 @keyframes fo{0%{opacity:0;transform:translateX(-50%) translateY(10px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0}}
+.progress-bar{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden;}
+.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;}
 ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--bg);}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
 textarea.input{resize:vertical;}
 </style>
@@ -101,6 +104,8 @@ textarea.input{resize:vertical;}
 <div id="root"></div>
 <script>
 const {useState,useEffect}=React;
+
+// ── Themes ────────────────────────────────────────────────────────────────────
 const THEMES={
   brick:{name:'Brick',desc:'Bold red & gold',bg:'#0f0f0f',surface:'#1a1a1a',card:'#222',border:'#333',accent:'#e3000b',accent2:'#f5a800',muted:'#666',text:'#e8e8e8',subtext:'#999',preview:['#e3000b','#f5a800','#1a1a1a']},
   slate:{name:'Slate',desc:'Steel blue & ice',bg:'#0d1117',surface:'#161b22',card:'#1c2128',border:'#30363d',accent:'#4a9eff',accent2:'#79c0ff',muted:'#484f58',text:'#e6edf3',subtext:'#8b949e',preview:['#4a9eff','#79c0ff','#1c2128']},
@@ -116,6 +121,8 @@ function applyTheme(t){
   const mc=document.querySelector('meta[name="theme-color"]');if(mc)mc.setAttribute('content',t.bg);
 }
 (()=>{try{const k=localStorage.getItem('bh-theme');if(k&&THEMES[k])applyTheme(THEMES[k]);}catch{}})();
+
+// ── Image loader ──────────────────────────────────────────────────────────────
 const BL_COLOR_IDS={"White":1,"Black":11,"Red":5,"Blue":7,"Yellow":3,"Green":6,"Dark Bluish Gray":85,"Light Bluish Gray":86,"Tan":2,"Dark Tan":69,"Reddish Brown":70,"Orange":4,"Sand Green":48,"Medium Blue":72,"Trans-Clear":12,"Pearl Dark Gray":77,"Dark Green":80,"Lime":34,"Dark Red":59,"Dark Orange":68,"Olive Green":155,"Sand Blue":55,"Light Nougat":90,"Nougat":28,"Medium Nougat":150,"Flat Silver":95,"Pearl Gold":115,"Chrome Silver":22,"Dark Gray":10,"Light Gray":9,"Magenta":71,"Dark Purple":89,"Purple":24,"Bright Pink":104,"Medium Lavender":157,"Lavender":154,"Copper":84,"Metallic Gold":147};
 const imgCache={};
 function usePartImg(partNum,color){
@@ -139,6 +146,29 @@ function usePartImg(partNum,color){
   },[key]);
   return url;
 }
+
+// ── Rebrickable set import ────────────────────────────────────────────────────
+async function fetchSetParts(setNum,apiKey,onProgress){
+  const normalized=setNum.includes('-')?setNum:setNum+'-1';
+  const PROXY='https://corsproxy.io/?url=';
+  const BASE='https://rebrickable.com/api/v3/lego/sets/'+encodeURIComponent(normalized)+'/parts/?page_size=500&inc_part_details=1';
+  let url=PROXY+encodeURIComponent(BASE);
+  let all=[];
+  while(url){
+    const res=await fetch(url,{headers:{'Authorization':'key '+apiKey}});
+    if(!res.ok){
+      if(res.status===404)throw new Error('Set "'+normalized+'" not found. Check the number.');
+      throw new Error('API error '+res.status+'. Check your API key in Settings.');
+    }
+    const data=await res.json();
+    all=[...all,...(data.results||[])];
+    onProgress&&onProgress(all.length,data.count||all.length);
+    url=data.next?PROXY+encodeURIComponent(data.next):null;
+  }
+  return all;
+}
+
+// ── Core data ─────────────────────────────────────────────────────────────────
 const COLORS={"Black":"#1a1a1a","White":"#f0f0f0","Red":"#cc0009","Blue":"#0057a8","Yellow":"#f5cd2f","Green":"#237841","Dark Bluish Gray":"#595d60","Light Bluish Gray":"#9ba19d","Tan":"#d9bb7b","Dark Tan":"#958a73","Reddish Brown":"#89351d","Orange":"#fe8a18","Sand Green":"#8d9d77","Medium Blue":"#6e99c4","Trans-Clear":"#ffffffaa","Pearl Dark Gray":"#575857"};
 const TYPE_BADGE={set:"badge-set",custom:"badge-custom",moc:"badge-moc",bsx:"badge-bsx"};
 const TYPE_LABELS={set:"Official Set",custom:"Custom Build",moc:"MOC",bsx:"BSX Import"};
@@ -146,10 +176,12 @@ const genId=()=>Math.random().toString(36).slice(2,9);
 const SEED=[
   {id:"p1",name:"10300 Back to the Future",type:"set",setNum:"10300",notes:"Missing from used lot purchase",parts:[{id:"pt1",partNum:"3001",name:"Brick 2x4",color:"White",qty:4,foundQty:0},{id:"pt2",partNum:"4286",name:"Slope 33 1x3",color:"Dark Tan",qty:2,foundQty:0},{id:"pt3",partNum:"2780",name:"Technic Pin",color:"Black",qty:8,foundQty:8},{id:"pt4",partNum:"32064",name:"Technic Brick 1x2",color:"Dark Bluish Gray",qty:3,foundQty:0}]},
   {id:"p2",name:"Dragon's Roost Diorama",type:"moc",setNum:"",notes:"Custom MOC in progress",parts:[{id:"pt5",partNum:"15068",name:"Slope Curved 2x2",color:"Reddish Brown",qty:6,foundQty:0},{id:"pt6",partNum:"30099",name:"Fence Spindled 1x4x2",color:"Dark Tan",qty:4,foundQty:0},{id:"pt7",partNum:"11477",name:"Slope Curved 1x2",color:"Sand Green",qty:12,foundQty:12}]},
-  {id:"p3",name:"75313 AT-AT BSX Import",type:"bsx",setNum:"75313",notes:"BrickStore wishlist import",parts:[{id:"pt8",partNum:"26047",name:"Plate Modified 1x2 w/ Pin Hole",color:"Light Bluish Gray",qty:10,foundQty:0},{id:"pt9",partNum:"4865",name:"Panel 1x2x1",color:"Black",qty:16,foundQty:0},{id:"pt10",partNum:"3710",name:"Plate 1x4",color:"Light Bluish Gray",qty:20,foundQty:0}]},
+  {id:"p3",name:"75313 AT-AT BSX Import",type:"bsx",setNum:"75313",notes:"BrickStore wishlist import",parts:[{id:"pt8",partNum:"26047",name:"Plate Modified 1x2",color:"Light Bluish Gray",qty:10,foundQty:0},{id:"pt9",partNum:"4865",name:"Panel 1x2x1",color:"Black",qty:16,foundQty:0},{id:"pt10",partNum:"3710",name:"Plate 1x4",color:"Light Bluish Gray",qty:20,foundQty:0}]},
 ];
 function missingCount(p){return p.parts.filter(x=>(x.foundQty??0)<x.qty).length;}
 const ce=React.createElement;
+
+// ── UI Components ─────────────────────────────────────────────────────────────
 function Thumb({partNum,color,size=34}){
   const url=usePartImg(partNum,color);
   return ce('div',{className:'thumb',style:{width:size,height:size}},url?ce('img',{src:url,alt:'',style:{width:size-2,height:size-2}}):'?');
@@ -175,6 +207,70 @@ function PartRow({pt,onAdjust,onSelect,showProjects}){
     ce(Stepper,{fq,qty:pt.qty,onAdjust})
   );
 }
+
+// ── Set Import ────────────────────────────────────────────────────────────────
+function SetImport({apiKey,onImport}){
+  const [setNum,setSetNum]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [progress,setProgress]=useState(null);
+  const [err,setErr]=useState('');
+  const doImport=async()=>{
+    setErr('');
+    if(!setNum.trim()){setErr('Enter a set number.');return;}
+    if(!apiKey){setErr('Add your Rebrickable API key in Settings first.');return;}
+    setLoading(true);setProgress({loaded:0,total:0});
+    try{
+      const raw=await fetchSetParts(setNum.trim(),apiKey,(loaded,total)=>setProgress({loaded,total}));
+      const parts=raw.filter(r=>!r.is_spare).map(r=>({
+        id:genId(),
+        partNum:r.part?.part_num||'?',
+        name:r.part?.name||r.part?.part_num||'Unknown',
+        color:r.color?.name||'Unknown',
+        qty:r.quantity||1,
+        foundQty:0,
+      }));
+      const norm=setNum.trim().includes('-')?setNum.trim():setNum.trim()+'-1';
+      onImport({id:genId(),name:'Set '+norm,type:'set',setNum:setNum.trim().split('-')[0],notes:'Rebrickable import — '+parts.length+' parts',parts});
+      setSetNum('');setProgress(null);
+    }catch(e){setErr(e.message||'Import failed.');}
+    finally{setLoading(false);}
+  };
+  const pct=progress&&progress.total>0?Math.round(progress.loaded/progress.total*100):0;
+  return ce('div',null,
+    ce('div',{style:{display:'flex',gap:8}},
+      ce('input',{className:'input',placeholder:'Set number e.g. 10300',value:setNum,onChange:e=>setSetNum(e.target.value),style:{flex:1},onKeyDown:e=>e.key==='Enter'&&doImport()}),
+      ce('button',{className:'btn btn-primary',style:{flexShrink:0},onClick:doImport,disabled:loading},loading?'...':'Import')
+    ),
+    loading&&ce('div',{style:{marginTop:8}},
+      ce('div',{style:{fontSize:12,color:'var(--subtext)',marginBottom:4}},progress&&progress.total>0?'Loading '+progress.loaded+' of '+progress.total+' parts...':'Contacting Rebrickable...'),
+      ce('div',{className:'progress-bar'},ce('div',{className:'progress-fill',style:{width:(pct||15)+'%'}}))
+    ),
+    err&&ce('div',{style:{fontSize:12,color:'var(--accent)',marginTop:8}},'⚠ '+err)
+  );
+}
+
+// ── BSX Import ────────────────────────────────────────────────────────────────
+function BsxImport({onImport}){
+  const [xml,setXml]=useState('');const [projName,setProjName]=useState('');const [err,setErr]=useState('');
+  const parse=()=>{
+    setErr('');if(!xml.trim()||!projName.trim()){setErr('Provide a project name and XML.');return;}
+    try{
+      const doc=new DOMParser().parseFromString(xml,'text/xml');
+      const items=[...doc.querySelectorAll('Item')];
+      if(!items.length){setErr('No Item elements found.');return;}
+      const parts=items.map(item=>({id:genId(),partNum:item.getAttribute('ItemID')||'?',name:item.getAttribute('ItemID')||'Unknown',color:item.getAttribute('ColorName')||'Unknown',qty:parseInt(item.getAttribute('MinQty')||item.getAttribute('Qty')||'1',10),foundQty:0}));
+      onImport({id:genId(),name:projName.trim(),type:'bsx',setNum:'',notes:'BSX import',parts});
+    }catch(e){setErr('Could not parse XML.');}
+  };
+  return ce('div',null,
+    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Project Name'),ce('input',{className:'input',placeholder:'e.g. 75313 AT-AT Wishlist',value:projName,onChange:e=>setProjName(e.target.value)})),
+    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Paste BSX XML'),ce('textarea',{className:'input',style:{height:90,fontFamily:'monospace',fontSize:11},value:xml,onChange:e=>setXml(e.target.value)})),
+    err&&ce('div',{style:{color:'var(--accent)',fontSize:12,marginBottom:8}},'! '+err),
+    ce('button',{className:'btn btn-primary btn-full',onClick:parse},'Import BSX')
+  );
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
 function PartDetailModal({pt,projects,onClose,onAdjust}){
   const imgUrl=usePartImg(pt.partNum,pt.color);
   const appearances=projects.flatMap(p=>p.parts.filter(x=>x.partNum===pt.partNum).map(x=>({project:p,part:x})));
@@ -225,11 +321,11 @@ function AddProjectModal({onClose,onAdd}){
   const submit=()=>{if(!name.trim())return;onAdd({id:genId(),name:name.trim(),type,setNum,notes,parts:[]});};
   return ce('div',{className:'overlay',onClick:onClose},ce('div',{className:'modal',onClick:e=>e.stopPropagation()},
     ce('div',{className:'modal-title'},'New Project'),
-    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Project Type'),ce('select',{className:'input',value:type,onChange:e=>setType(e.target.value)},ce('option',{value:'set'},'Official Set'),ce('option',{value:'custom'},'Custom Build'),ce('option',{value:'moc'},'MOC'),ce('option',{value:'bsx'},'BSX Import'))),
+    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Type'),ce('select',{className:'input',value:type,onChange:e=>setType(e.target.value)},ce('option',{value:'set'},'Official Set'),ce('option',{value:'custom'},'Custom Build'),ce('option',{value:'moc'},'MOC'),ce('option',{value:'bsx'},'BSX Import'))),
     ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Name'),ce('input',{className:'input',placeholder:'e.g. 10300 Back to the Future',value:name,onChange:e=>setName(e.target.value),autoFocus:true})),
     (type==='set'||type==='bsx')&&ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Set Number'),ce('input',{className:'input',placeholder:'e.g. 10300',value:setNum,onChange:e=>setSetNum(e.target.value)})),
     ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Notes'),ce('input',{className:'input',placeholder:'Source, condition, etc.',value:notes,onChange:e=>setNotes(e.target.value)})),
-    ce('div',{className:'form-actions'},ce('button',{className:'btn btn-primary',style:{flex:1},onClick:submit},'Create Project'),ce('button',{className:'btn btn-secondary',onClick:onClose},'Cancel'))
+    ce('div',{className:'form-actions'},ce('button',{className:'btn btn-primary',style:{flex:1},onClick:submit},'Create'),ce('button',{className:'btn btn-secondary',onClick:onClose},'Cancel'))
   ));
 }
 function AddPartModal({projectName,onClose,onAdd}){
@@ -245,26 +341,9 @@ function AddPartModal({projectName,onClose,onAdd}){
     ce('div',{className:'form-actions'},ce('button',{className:'btn btn-primary',style:{flex:1},onClick:submit},'Add Part'),ce('button',{className:'btn btn-secondary',onClick:onClose},'Cancel'))
   ));
 }
-function BsxImport({onImport}){
-  const [xml,setXml]=useState('');const [projName,setProjName]=useState('');const [err,setErr]=useState('');
-  const parse=()=>{
-    setErr('');if(!xml.trim()||!projName.trim()){setErr('Provide a project name and XML.');return;}
-    try{
-      const doc=new DOMParser().parseFromString(xml,'text/xml');
-      const items=[...doc.querySelectorAll('Item')];
-      if(!items.length){setErr('No Item elements found.');return;}
-      const parts=items.map(item=>({id:genId(),partNum:item.getAttribute('ItemID')||'?',name:item.getAttribute('ItemID')||'Unknown',color:item.getAttribute('ColorName')||'Unknown',qty:parseInt(item.getAttribute('MinQty')||item.getAttribute('Qty')||'1',10),foundQty:0}));
-      onImport({id:genId(),name:projName.trim(),type:'bsx',setNum:'',notes:'BSX import',parts});
-    }catch(e){setErr('Could not parse XML.');}
-  };
-  return ce('div',null,
-    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Project Name'),ce('input',{className:'input',placeholder:'e.g. 75313 AT-AT Wishlist',value:projName,onChange:e=>setProjName(e.target.value)})),
-    ce('div',{className:'form-row'},ce('label',{className:'form-label'},'Paste BSX XML'),ce('textarea',{className:'input',style:{height:100,fontFamily:'monospace',fontSize:11},value:xml,onChange:e=>setXml(e.target.value)})),
-    err&&ce('div',{style:{color:'var(--accent)',fontSize:12,marginBottom:8}},'! '+err),
-    ce('button',{className:'btn btn-primary btn-full',onClick:parse},'Import BSX')
-  );
-}
-  function App(){
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App(){
   const [projects,setProjects]=useState(()=>{try{const s=localStorage.getItem('bh-projects');return s?JSON.parse(s):SEED;}catch{return SEED;}});
   const [tab,setTab]=useState('projects');
   const [selectedIds,setSelectedIds]=useState(['p1','p3']);
@@ -280,12 +359,16 @@ function BsxImport({onImport}){
   const [selectedPart,setSelectedPart]=useState(null);
   const [apiKey,setApiKey]=useState(()=>{try{return localStorage.getItem('bh-rbkey')||'';}catch{return '';}});
   const [themeKey,setThemeKey]=useState(()=>{try{return localStorage.getItem('bh-theme')||'brick';}catch{return 'brick';}});
+
   useEffect(()=>{try{localStorage.setItem('bh-projects',JSON.stringify(projects));}catch{}},[projects]);
   useEffect(()=>{applyTheme(THEMES[themeKey]||THEMES.brick);try{localStorage.setItem('bh-theme',themeKey);}catch{};},[themeKey]);
-  const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),2200);};
+
+  const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),2400);};
   const updateProject=(id,fn)=>setProjects(ps=>ps.map(p=>p.id===id?fn(p):p));
   const adjustFound=(projectId,partId,delta)=>{updateProject(projectId,p=>({...p,parts:p.parts.map(pt=>{if(pt.id!==partId)return pt;const next=Math.min(pt.qty,Math.max(0,(pt.foundQty??0)+delta));return {...pt,foundQty:next};})}));};
   const deleteProject=id=>{setProjects(ps=>ps.filter(p=>p.id!==id));setSelectedIds(s=>s.filter(x=>x!==id));if(expandedId===id)setExpandedId(null);setConfirmDeleteId(null);showToast('Project removed');};
+  const addProject=proj=>{setProjects(ps=>[...ps,proj]);setTab('projects');};
+
   const buildHuntParts=ids=>{
     const merged={};
     projects.filter(p=>ids.includes(p.id)).forEach(p=>{p.parts.forEach(pt=>{const key=pt.partNum+'-'+pt.color;if(merged[key]){merged[key].qty+=pt.qty;merged[key].foundQty=(merged[key].foundQty??0)+(pt.foundQty??0);merged[key].sources.push({projectId:p.id,partId:pt.id,qty:pt.qty,foundQty:pt.foundQty??0});merged[key].projects.push(p.name);}else{merged[key]={...pt,id:key,foundQty:pt.foundQty??0,sources:[{projectId:p.id,partId:pt.id,qty:pt.qty,foundQty:pt.foundQty??0}],projects:[p.name]};}});});
@@ -295,18 +378,21 @@ function BsxImport({onImport}){
   const huntParts=allHuntParts.filter(pt=>huntFilter==='all'||(pt.foundQty??0)<pt.qty);
   const soloProject=soloHuntId?projects.find(p=>p.id===soloHuntId):null;
   const filteredProjects=projects.filter(p=>filterType==='all'||p.type===filterType).filter(p=>!searchQ||p.name.toLowerCase().includes(searchQ.toLowerCase())||p.setNum.includes(searchQ));
+
   return ce('div',{className:'stud-bg',style:{minHeight:'100vh'}},
     ce('div',{className:'app-shell'},
+
       ce('div',{className:'header'},
         ce('div',{className:'header-top'},ce('span',{className:'logo-pill'},'🧱'),ce('span',{className:'app-title'},'Brick Hunter')),
         ce('div',{className:'header-subtitle'},'Missing Parts Tracker'),
         ce('div',{className:'tabs'},['projects','hunt','import','settings'].map(t=>ce('button',{key:t,className:'tab'+(tab===t?' active':''),onClick:()=>setTab(t)},t==='projects'?'📋 Projects':t==='hunt'?'🔍 Hunt':t==='import'?'📥 Import':'⚙ Settings'+(apiKey?' ✓':'')))),
         tab==='hunt'&&ce('div',{className:'hunt-filter-bar'},['missing','all'].map(f=>ce('button',{key:f,className:'chip'+(huntFilter===f?' active':''),onClick:()=>setHuntFilter(f)},f==='missing'?'Missing Only':'All Parts')))
       ),
+
       tab==='projects'&&ce('div',{className:'content'},
-        ce('div',{className:'search-bar'},ce('input',{className:'input',placeholder:'Search sets, MOCs...',value:searchQ,onChange:e=>setSearchQ(e.target.value),style:{flex:1}}),ce('button',{className:'btn btn-primary',style:{flexShrink:0},onClick:()=>setShowAddProject(true)},'+ New')),
+        ce('div',{className:'search-bar'},ce('input',{className:'input',placeholder:'Search...',value:searchQ,onChange:e=>setSearchQ(e.target.value),style:{flex:1}}),ce('button',{className:'btn btn-primary',style:{flexShrink:0},onClick:()=>setShowAddProject(true)},'+ New')),
         ce('div',{className:'filter-row'},['all','set','custom','moc','bsx'].map(f=>ce('button',{key:f,className:'chip'+(filterType===f?' active':''),onClick:()=>setFilterType(f)},f==='all'?'All':TYPE_LABELS[f]))),
-        filteredProjects.length===0&&ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'🧱'),ce('div',{className:'empty-title'},'No Projects'),ce('div',{style:{fontSize:13,color:'var(--muted)'}},'Add a set or MOC to get started')),
+        filteredProjects.length===0&&ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'🧱'),ce('div',{className:'empty-title'},'No Projects'),ce('div',{style:{fontSize:13,color:'var(--muted)'}},'Use Import tab or + New')),
         filteredProjects.map(project=>{
           const mc=missingCount(project),isExp=expandedId===project.id,isSel=selectedIds.includes(project.id);
           return ce('div',{key:project.id,className:'card'+(isSel?' selected':'')},
@@ -330,6 +416,7 @@ function BsxImport({onImport}){
           );
         })
       ),
+
       tab==='hunt'&&ce('div',{className:'content'},
         soloProject?ce(React.Fragment,null,
           ce('button',{className:'btn btn-ghost',style:{marginBottom:10,paddingLeft:0,fontSize:13},onClick:()=>setSoloHuntId(null)},'<- Back'),
@@ -341,9 +428,8 @@ function BsxImport({onImport}){
               ce('div',{className:'stat'},ce('div',{className:'stat-num'},soloProject.parts.reduce((a,p)=>a+Math.max(0,p.qty-(p.foundQty??0)),0)),ce('div',{className:'stat-label'},'Pcs Left'))
             )
           ),
-          missingCount(soloProject)===0&&huntFilter==='missing'
-            ?ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'✅'),ce('div',{className:'empty-title'},'All Parts Found!'))
-            :ce('div',{className:'card'},soloProject.parts.filter(pt=>huntFilter==='all'||(pt.foundQty??0)<pt.qty).map(pt=>ce(PartRow,{key:pt.id,pt,onAdjust:delta=>adjustFound(soloProject.id,pt.id,delta),onSelect:()=>setSelectedPart({pt,projectId:soloProject.id})})))
+          missingCount(soloProject)===0&&huntFilter==='missing'?ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'✅'),ce('div',{className:'empty-title'},'All Parts Found!')):
+          ce('div',{className:'card'},soloProject.parts.filter(pt=>huntFilter==='all'||(pt.foundQty??0)<pt.qty).map(pt=>ce(PartRow,{key:pt.id,pt,onAdjust:delta=>adjustFound(soloProject.id,pt.id,delta),onSelect:()=>setSelectedPart({pt,projectId:soloProject.id})})))
         ):ce(React.Fragment,null,
           ce('div',{className:'hunt-header'},
             ce('div',{className:'hunt-title'},'Combined Hunt List'),
@@ -369,21 +455,28 @@ function BsxImport({onImport}){
               onAdjust:delta=>{if(delta>0){const src=pt.sources.find(s=>(s.foundQty??0)<s.qty);if(src)adjustFound(src.projectId,src.partId,delta);}else{const src=[...pt.sources].reverse().find(s=>(s.foundQty??0)>0);if(src)adjustFound(src.projectId,src.partId,delta);}}
             })))
           ),
-          selectedIds.length===0&&ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'☝️'),ce('div',{className:'empty-title'},'Select Projects Above'),ce('div',{style:{fontSize:13,color:'var(--muted)'}},'Check projects to build your hunt list'))
+          selectedIds.length===0&&ce('div',{className:'empty'},ce('div',{className:'empty-icon'},'☝️'),ce('div',{className:'empty-title'},'Select Projects Above'))
         )
       ),
+
       tab==='import'&&ce('div',{className:'content'},
-        ce('div',{className:'section-label'},'BSX / BrickStore Import'),
-        ce('div',{className:'bsx-drop'},'📥 Drop BSX here or paste XML below'),
-        ce(BsxImport,{onImport:proj=>{setProjects(ps=>[...ps,proj]);showToast('BSX imported!');setTab('projects');}}),
-        ce('div',{className:'section-label',style:{marginTop:20}},'Guide'),
-        ce('div',{className:'card',style:{fontSize:13,color:'var(--subtext)',lineHeight:1.8}},
-          ce('p',null,'1. Export BrickStore wishlist as .bsx (XML)'),
-          ce('p',null,'2. Paste XML above and name the project'),
-          ce('p',null,'3. All parts start as missing'),
-          ce('p',null,'4. Use +/- to mark parts found')
+        ce('div',{className:'section-label'},'Import by Set Number'),
+        ce('div',{className:'card'},
+          ce('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:15,color:'var(--text)',marginBottom:6}},'Official Set via Rebrickable'),
+          ce('div',{style:{fontSize:13,color:'var(--subtext)',lineHeight:1.6,marginBottom:12}},apiKey?'Enter a set number to pull the full part list automatically.':'Add your Rebrickable API key in Settings to enable set import.'),
+          ce(SetImport,{apiKey,onImport:proj=>{addProject(proj);showToast('Imported '+proj.parts.length+' parts!');}})
+        ),
+        ce('div',{className:'section-label',style:{marginTop:20}},'BSX / BrickStore Import'),
+        ce('div',{className:'card'},
+          ce('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:15,color:'var(--text)',marginBottom:10}},'Paste BSX XML'),
+          ce(BsxImport,{onImport:proj=>{addProject(proj);showToast('BSX imported!');}})
+        ),
+        ce('div',{className:'section-label',style:{marginTop:20}},'Manual Entry'),
+        ce('div',{className:'card',style:{fontSize:13,color:'var(--subtext)',lineHeight:1.7}},
+          ce('p',null,'Use + New on Projects to create a blank project, then + Part to add parts one at a time.')
         )
       ),
+
       tab==='settings'&&ce('div',{className:'content'},
         ce('div',{className:'section-label'},'Theme'),
         ce('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}},
@@ -397,16 +490,19 @@ function BsxImport({onImport}){
             );
           })
         ),
-        ce('div',{className:'section-label',style:{marginTop:16}},'Part Thumbnails'),
-        ce('div',{className:'card'},ce('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:700,fontSize:15,marginBottom:6,color:'var(--text)'}},'BrickLink CDN'),ce('div',{style:{fontSize:13,color:'var(--subtext)',lineHeight:1.6}},'Color-accurate thumbnails load automatically. No account needed.'),ce('div',{style:{marginTop:8,fontSize:12,color:'#5fd15f'}},'✓ Active')),
         ce('div',{className:'section-label',style:{marginTop:16}},'Rebrickable API Key'),
         ce('div',{className:'card'},
-          ce('div',{style:{fontSize:13,color:'var(--subtext)',marginBottom:12,lineHeight:1.6}},'Optional. Free key at rebrickable.com/api for future part lookup.'),
+          ce('div',{style:{fontSize:13,color:'var(--subtext)',marginBottom:10,lineHeight:1.6}},'Required for set import. Free key at ',ce('span',{style:{color:'var(--accent2)'}},'rebrickable.com/api'),'.'),
           ce('div',{style:{display:'flex',gap:8}},
             ce('input',{className:'input',type:'password',placeholder:'Paste API key...',value:apiKey,style:{flex:1,fontFamily:'monospace',fontSize:13},onChange:e=>{const v=e.target.value;setApiKey(v);try{localStorage.setItem('bh-rbkey',v);}catch{}}}),
             apiKey&&ce('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setApiKey('');try{localStorage.removeItem('bh-rbkey');}catch{}showToast('Key cleared');}},'Clear')
           ),
-          apiKey&&ce('div',{style:{marginTop:8,fontSize:12,color:'#5fd15f'}},'✓ Key saved')
+          apiKey&&ce('div',{style:{marginTop:8,fontSize:12,color:'#5fd15f'}},'✓ Key saved — set import enabled')
+        ),
+        ce('div',{className:'section-label',style:{marginTop:16}},'Part Thumbnails'),
+        ce('div',{className:'card'},
+          ce('div',{style:{fontSize:13,color:'var(--subtext)',lineHeight:1.6}},'Color-accurate thumbnails load automatically from BrickLink CDN. No account needed.'),
+          ce('div',{style:{marginTop:8,fontSize:12,color:'#5fd15f'}},'✓ Active')
         ),
         ce('div',{className:'section-label',style:{marginTop:16}},'Data'),
         ce('div',{className:'card'},
@@ -417,10 +513,11 @@ function BsxImport({onImport}){
         ce('div',{className:'card',style:{fontSize:13,color:'var(--subtext)',lineHeight:1.8}},
           ce('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:18,color:'var(--text)',marginBottom:4}},'🧱 Brick Hunter'),
           ce('div',null,'Missing parts tracker for sets, MOCs, and BSX imports.'),
-          ce('div',{style:{marginTop:6}},"Thumbnails via BrickLink CDN. Built for Dragon's Roost.")
+          ce('div',{style:{marginTop:6}},"Thumbnails via BrickLink. Set data via Rebrickable. Built for Dragon's Roost.")
         )
       )
     ),
+
     showAddProject&&ce(AddProjectModal,{onClose:()=>setShowAddProject(false),onAdd:proj=>{setProjects(ps=>[...ps,proj]);showToast('Project added!');setShowAddProject(false);}}),
     selectedPart&&ce(PartDetailModal,{pt:selectedPart.pt,projects,onClose:()=>setSelectedPart(null),onAdjust:(pid,ptid,delta)=>adjustFound(pid,ptid,delta)}),
     showAddPart&&ce(AddPartModal,{projectName:projects.find(p=>p.id===showAddPart)?.name,onClose:()=>setShowAddPart(null),onAdd:part=>{updateProject(showAddPart,p=>({...p,parts:[...p.parts,part]}));showToast('Part added!');setShowAddPart(null);}}),
@@ -428,7 +525,9 @@ function BsxImport({onImport}){
     toast&&ce('div',{className:'toast'},toast)
   );
 }
+
 ReactDOM.render(ce(App),document.getElementById('root'));
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
 </script>
 </body>
 </html>
