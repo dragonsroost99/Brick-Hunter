@@ -2,7 +2,7 @@
   "name": "Brick Hunter",
   "short_name": "Brick Hunter",
   "description": "Missing LEGO parts tracker",
-  "start_url": "/https://dragonsroost99.github.io/Brick-Hunter//",
+  "start_url": "https://dragonsroost99.github.io/Brick-Hunter/",
   "scope": "/brick-hunter/",
   "display": "standalone",
   "orientation": "portrait",
