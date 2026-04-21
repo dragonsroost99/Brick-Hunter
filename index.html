@@ -148,18 +148,25 @@ function usePartImg(partNum,color){
 }
 
 // ── Rebrickable set import ────────────────────────────────────────────────────
-async function fetchSetParts(setNum,apiKey,onProgress){
-  const normalized=setNum.includes('-')?setNum:setNum+'-1';
-  const PROXY='https://corsproxy.io/?url=';
+const PROXY='https://corsproxy.io/?url=';
+
+async function fetchSetDetails(normalized,apiKey){
+  const url=PROXY+encodeURIComponent('https://rebrickable.com/api/v3/lego/sets/'+encodeURIComponent(normalized)+'/');
+  const res=await fetch(url,{headers:{'Authorization':'key '+apiKey}});
+  if(!res.ok){
+    if(res.status===404)throw new Error('Set "'+normalized+'" not found. Check the number.');
+    throw new Error('API error '+res.status+'. Check your API key in Settings.');
+  }
+  return res.json(); // {name, set_img_url, set_num, year, ...}
+}
+
+async function fetchSetParts(normalized,apiKey,onProgress){
   const BASE='https://rebrickable.com/api/v3/lego/sets/'+encodeURIComponent(normalized)+'/parts/?page_size=500&inc_part_details=1';
   let url=PROXY+encodeURIComponent(BASE);
   let all=[];
   while(url){
     const res=await fetch(url,{headers:{'Authorization':'key '+apiKey}});
-    if(!res.ok){
-      if(res.status===404)throw new Error('Set "'+normalized+'" not found. Check the number.');
-      throw new Error('API error '+res.status+'. Check your API key in Settings.');
-    }
+    if(!res.ok)throw new Error('Parts fetch error '+res.status+'.');
     const data=await res.json();
     all=[...all,...(data.results||[])];
     onProgress&&onProgress(all.length,data.count||all.length);
@@ -220,7 +227,12 @@ function SetImport({apiKey,onImport}){
     if(!apiKey){setErr('Add your Rebrickable API key in Settings first.');return;}
     setLoading(true);setProgress({loaded:0,total:0});
     try{
-      const raw=await fetchSetParts(setNum.trim(),apiKey,(loaded,total)=>setProgress({loaded,total}));
+      const normalized=setNum.trim().includes('-')?setNum.trim():setNum.trim()+'-1';
+      // Fetch set details (name + image) and parts in parallel
+      const [details,raw]=await Promise.all([
+        fetchSetDetails(normalized,apiKey),
+        fetchSetParts(normalized,apiKey,(loaded,total)=>setProgress({loaded,total})),
+      ]);
       const parts=raw.filter(r=>!r.is_spare).map(r=>({
         id:genId(),
         partNum:r.part?.part_num||'?',
@@ -229,8 +241,15 @@ function SetImport({apiKey,onImport}){
         qty:r.quantity||1,
         foundQty:0,
       }));
-      const norm=setNum.trim().includes('-')?setNum.trim():setNum.trim()+'-1';
-      onImport({id:genId(),name:'Set '+norm,type:'set',setNum:setNum.trim().split('-')[0],notes:'Rebrickable import — '+parts.length+' parts',parts});
+      onImport({
+        id:genId(),
+        name:details.name||('Set '+normalized),
+        type:'set',
+        setNum:normalized.split('-')[0],
+        setImage:details.set_img_url||null,
+        notes:'Rebrickable import — '+parts.length+' parts'+(details.year?' ('+details.year+')':''),
+        parts,
+      });
       setSetNum('');setProgress(null);
     }catch(e){setErr(e.message||'Import failed.');}
     finally{setLoading(false);}
@@ -398,6 +417,7 @@ function App(){
           return ce('div',{key:project.id,className:'card'+(isSel?' selected':'')},
             ce('div',{className:'project-header',onClick:()=>{setSoloHuntId(project.id);setTab('hunt');}},
               ce('span',{className:'badge '+TYPE_BADGE[project.type]},project.type==='set'?'SET':project.type.toUpperCase()),
+              project.setImage&&ce('img',{src:project.setImage,alt:'',style:{width:48,height:36,objectFit:'contain',borderRadius:4,background:'var(--surface)',flexShrink:0}}),
               ce('span',{className:'project-name'},project.name),
               ce('span',{className:'missing-count'+(mc===0?' zero':'')},mc===0?'✓':mc)
             ),
@@ -421,7 +441,11 @@ function App(){
         soloProject?ce(React.Fragment,null,
           ce('button',{className:'btn btn-ghost',style:{marginBottom:10,paddingLeft:0,fontSize:13},onClick:()=>setSoloHuntId(null)},'<- Back'),
           ce('div',{className:'hunt-header'},
-            ce('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},ce('span',{className:'badge '+TYPE_BADGE[soloProject.type]},soloProject.type.toUpperCase()),ce('div',{className:'hunt-title',style:{fontSize:15}},soloProject.name)),
+            ce('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:4}},
+              ce('span',{className:'badge '+TYPE_BADGE[soloProject.type]},soloProject.type.toUpperCase()),
+              soloProject.setImage&&ce('img',{src:soloProject.setImage,alt:'',style:{width:48,height:36,objectFit:'contain',borderRadius:4,background:'rgba(255,255,255,.05)',flexShrink:0}}),
+              ce('div',{className:'hunt-title',style:{fontSize:15}},soloProject.name)
+            ),
             ce('div',{className:'hunt-stats'},
               ce('div',{className:'stat'},ce('div',{className:'stat-num',style:{color:'var(--accent)'}},missingCount(soloProject)),ce('div',{className:'stat-label'},'Missing')),
               ce('div',{className:'stat'},ce('div',{className:'stat-num',style:{color:'#5fd15f'}},soloProject.parts.filter(p=>(p.foundQty??0)>=p.qty).length),ce('div',{className:'stat-label'},'Found')),
@@ -527,13 +551,7 @@ function App(){
 }
 
 ReactDOM.render(ce(App),document.getElementById('root'));
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/Brick-Hunter/sw.js', {
-        scope: '/Brick-Hunter/'
-      });
-    });
-}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
 </script>
 </body>
 </html>
