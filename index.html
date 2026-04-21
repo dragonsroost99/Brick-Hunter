@@ -161,7 +161,7 @@ async function fetchSetDetails(normalized,apiKey){
 }
 
 async function fetchSetParts(normalized,apiKey,onProgress){
-  const BASE='https://rebrickable.com/api/v3/lego/sets/'+encodeURIComponent(normalized)+'/parts/?page_size=500&inc_part_details=1';
+  const BASE='https://rebrickable.com/api/v3/lego/sets/'+encodeURIComponent(normalized)+'/parts/?page_size=500&inc_part_details=1&inc_minifig_parts=1';
   let url=PROXY+encodeURIComponent(BASE);
   let all=[];
   while(url){
